@@ -1,0 +1,5 @@
+.env
+.vscode
+cloned-repositories
+logs
+node_modules
