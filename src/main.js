@@ -414,7 +414,7 @@ class EmuWebappServer {
     if(bundleList) {
       bundleList.bundles.forEach((bundleListItem) => {
         if(bundleListItem.name == bundleName && bundleListItem.session == reqData.session) {
-          bundleListItem.finishedEditing = reqData.finishedEditing;
+          bundleListItem.finishedEditing = reqData.finishedEditing ? true : false; //make sure it's a boolean
           bundleListItem.comment = reqData.comment;
         }
       });
