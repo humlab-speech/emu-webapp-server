@@ -304,7 +304,30 @@ class EmuWebappServer {
     //TODO: now hold on just a minute: how do we know that the user has access to this project?
 
     let bundlePath = process.env.REPOSITORIES_PATH+"/"+projectId+"/Data/VISP_emuDB/"+sessionMachineName+"_ses/"+bundleBasename+"_bndl";
+
+    let readFmsPromise = new Promise((resolve, reject) => {
+      const fmsFilePath = `${bundlePath}/${bundleBasename}.fms`;
+      if (fs.existsSync(fmsFilePath)) {
+        let fmsFileData = fs.readFileSync(fmsFilePath);
+        let fmsFileDataBase64 = fmsFileData.toString('base64');
+        resolve(fmsFileDataBase64);
+      } else {
+        reject(new Error("FMS file not found."));
+      }
+    });
     
+    let readF0Promise = new Promise((resolve, reject) => {
+      const f0FilePath = `${bundlePath}/${bundleBasename}.f0`;
+      if (fs.existsSync(f0FilePath)) {
+        let f0FileData = fs.readFileSync(f0FilePath);
+        let f0FileDataBase64 = f0FileData.toString('base64');
+        resolve(f0FileDataBase64);
+      } else {
+        reject(new Error("F0 file not found."));
+      }
+    });
+
+    /*
     let readFmsPromise = new Promise((resolve, reject) => {
       let fmsFileData = fs.readFileSync(bundlePath+"/"+bundleBasename+".fms");
       let fmsFileDataBase64 = fmsFileData.toString('base64');
@@ -316,9 +339,73 @@ class EmuWebappServer {
       let f0FileDataBase64 = f0FileData.toString('base64');
       resolve(f0FileDataBase64);
     });
+    */
 
+    Promise.allSettled([readFmsPromise, readF0Promise, readMetaDataPromise])
+    .then(values => {
+      let fmsFileDataBase64 = values[0].status === "fulfilled" ? values[0].value : null;
+      let f0FileDataBase64 = values[1].status === "fulfilled" ? values[1].value : null;
+      let audioFileMetadata = values[2].status === "fulfilled" ? values[2].value : null;
+
+      let bundleData = {
+        annotation: {
+          annotates: filename,
+          levels: [],
+          links: [],
+          name: bundleBasename,
+          sampleRate: audioFileMetadata ? audioFileMetadata.format.sampleRate : undefined
+        },
+        mediaFile: {
+          data: mediaUrl,
+          encoding: "GETURL"
+        },
+        ssffFiles: []
+      };
+
+      if (fmsFileDataBase64) {
+        bundleData.ssffFiles.push({
+          data: fmsFileDataBase64,
+          encoding: "BASE64",
+          fileExtension: "fms",
+        });
+      }
+
+      if (f0FileDataBase64) {
+        bundleData.ssffFiles.push({
+          data: f0FileDataBase64,
+          encoding: "BASE64",
+          fileExtension: "f0",
+        });
+      }
+
+      // Send GETBUNDLE response
+      const bundleResponse = {
+        callbackID,
+        data: bundleData, // Replace with actual bundle data
+        status: {
+          type: 'SUCCESS',
+          message: '',
+        },
+      };
+      ws.send(JSON.stringify(bundleResponse));
+    })
+    .catch(error => {
+      console.warn("Error processing files:", error);
+      // Send GETBUNDLE response
+      const bundleResponse = {
+        callbackID,
+        data: {}, // Replace with actual bundle data
+        status: {
+          type: 'ERROR',
+          message: 'Could not find ssff files.',
+        },
+      };
+      ws.send(JSON.stringify(bundleResponse));
+    });
+
+    /*
     let readMetaDataPromise = parseFile(bundlePath+"/"+bundleBasename+"."+audioFileExtension);
-    let values = await Promise.all([readFmsPromise, readF0Promise, readMetaDataPromise]);
+    let values = await Promise.allSettled([readFmsPromise, readF0Promise, readMetaDataPromise]);
 
     let fmsFileDataBase64 = values[0];
     let f0FileDataBase64 = values[1];
@@ -349,17 +436,8 @@ class EmuWebappServer {
         }
       ],
     };
+    */
 
-    // Send GETBUNDLE response
-    const bundleResponse = {
-      callbackID,
-      data: bundleData, // Replace with actual bundle data
-      status: {
-        type: 'SUCCESS',
-        message: '',
-      },
-    };
-    ws.send(JSON.stringify(bundleResponse));
   }
 
   getUser(req, cookies) {
