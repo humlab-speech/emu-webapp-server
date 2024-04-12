@@ -312,7 +312,7 @@ class EmuWebappServer {
         let fmsFileDataBase64 = fmsFileData.toString('base64');
         resolve(fmsFileDataBase64);
       } else {
-        reject(new Error("FMS file not found."));
+        reject("FMS file not found.");
       }
     });
     
@@ -323,7 +323,7 @@ class EmuWebappServer {
         let f0FileDataBase64 = f0FileData.toString('base64');
         resolve(f0FileDataBase64);
       } else {
-        reject(new Error("F0 file not found."));
+        reject("F0 file not found.");
       }
     });
 
@@ -397,7 +397,7 @@ class EmuWebappServer {
         data: {}, // Replace with actual bundle data
         status: {
           type: 'ERROR',
-          message: 'Could not find ssff files.',
+          message: 'Could not find track files. '+error,
         },
       };
       ws.send(JSON.stringify(bundleResponse));
