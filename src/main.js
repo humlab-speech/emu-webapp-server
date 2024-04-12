@@ -387,6 +387,7 @@ class EmuWebappServer {
           message: 'Error reading files. '+error,
         },
       };
+      ws.send(JSON.stringify(bundleResponse));
     });
   }
 
