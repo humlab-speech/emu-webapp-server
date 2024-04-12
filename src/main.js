@@ -291,7 +291,7 @@ class EmuWebappServer {
     const { type, callbackID } = request;
     const { name, session } = request;
 
-    let sessionMachineName = session.replace(/ /, "_").toLowerCase();
+    let sessionMachineName = session.replace(/ /g, "_").toLowerCase();
     let bundleBasename = name;
     let audioFileExtension = "wav";
     let filename = bundleBasename+"."+audioFileExtension;
@@ -410,7 +410,7 @@ class EmuWebappServer {
     let reqData = request.data;
     let bundleName = reqData.annotation.name;
     let project = await this.fetchProject(projectId);
-    let sessionSlug = reqData.session.replace(/ /, "_").toLowerCase();
+    let sessionSlug = reqData.session.replace(/ /g, "_").toLowerCase();
     let fileName = reqData.annotation.annotates;
 
     let bundlePath = process.env.REPOSITORIES_PATH+"/"+projectId+"/Data/VISP_emuDB/"+sessionSlug+"_ses/"+bundleName+"_bndl";
