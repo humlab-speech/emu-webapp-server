@@ -327,25 +327,11 @@ class EmuWebappServer {
       }
     });
 
-    /*
-    let readFmsPromise = new Promise((resolve, reject) => {
-      let fmsFileData = fs.readFileSync(bundlePath+"/"+bundleBasename+".fms");
-      let fmsFileDataBase64 = fmsFileData.toString('base64');
-      resolve(fmsFileDataBase64);
-    });
-
-    let readF0Promise = new Promise((resolve, reject) => {
-      let f0FileData = fs.readFileSync(bundlePath+"/"+bundleBasename+".f0");
-      let f0FileDataBase64 = f0FileData.toString('base64');
-      resolve(f0FileDataBase64);
-    });
-    */
-
-    Promise.allSettled([readFmsPromise, readF0Promise, readMetaDataPromise])
+    Promise.all([readFmsPromise, readF0Promise, readMetaDataPromise])
     .then(values => {
-      let fmsFileDataBase64 = values[0].status === "fulfilled" ? values[0].value : null;
-      let f0FileDataBase64 = values[1].status === "fulfilled" ? values[1].value : null;
-      let audioFileMetadata = values[2].status === "fulfilled" ? values[2].value : null;
+      let fmsFileDataBase64 = values[0];
+      let f0FileDataBase64 = values[1];
+      let audioFileMetadata = values[2];
 
       let bundleData = {
         annotation: {
@@ -402,42 +388,6 @@ class EmuWebappServer {
       };
       ws.send(JSON.stringify(bundleResponse));
     });
-
-    /*
-    let readMetaDataPromise = parseFile(bundlePath+"/"+bundleBasename+"."+audioFileExtension);
-    let values = await Promise.allSettled([readFmsPromise, readF0Promise, readMetaDataPromise]);
-
-    let fmsFileDataBase64 = values[0];
-    let f0FileDataBase64 = values[1];
-    let audioFileMetadata = values[2];
-
-    let bundleData = {
-      annotation: {
-        annotates: filename,
-        levels: [],
-        links: [],
-        name: bundleBasename,
-        sampleRate: audioFileMetadata.format.sampleRate
-      },
-      mediaFile: {
-        data: mediaUrl,
-        encoding: "GETURL"
-      },
-      ssffFiles: [
-        {
-          data: fmsFileDataBase64,
-          encoding: "BASE64",
-          fileExtension: "fms",
-        },
-        {
-          data: f0FileDataBase64,
-          encoding: "BASE64",
-          fileExtension: "f0",
-        }
-      ],
-    };
-    */
-
   }
 
   getUser(req, cookies) {
