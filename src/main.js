@@ -306,16 +306,35 @@ class EmuWebappServer {
     let bundlePath = process.env.REPOSITORIES_PATH+"/"+projectId+"/Data/VISP_emuDB/"+sessionMachineName+"_ses/"+bundleBasename+"_bndl";
     
     let readFmsPromise = new Promise((resolve, reject) => {
-      let fmsFileData = fs.readFileSync(bundlePath+"/"+bundleBasename+".fms");
-      let fmsFileDataBase64 = fmsFileData.toString('base64');
-      resolve(fmsFileDataBase64);
+      try {
+        let fmsFilePath = bundlePath + "/" + bundleBasename + ".fms";
+        if (fs.existsSync(fmsFilePath)) { // Ensure file exists to avoid throwing in readFileSync
+          let fmsFileData = fs.readFileSync(fmsFilePath);
+          let fmsFileDataBase64 = fmsFileData.toString('base64');
+          resolve(fmsFileDataBase64);
+        } else {
+          reject(new Error("FMS file not found."));
+        }
+      } catch (error) {
+        reject(error); // Handle any other errors that may occur
+      }
     });
-
+    
     let readF0Promise = new Promise((resolve, reject) => {
-      let f0FileData = fs.readFileSync(bundlePath+"/"+bundleBasename+".f0");
-      let f0FileDataBase64 = f0FileData.toString('base64');
-      resolve(f0FileDataBase64);
+      try {
+        let f0FilePath = bundlePath + "/" + bundleBasename + ".f0";
+        if (fs.existsSync(f0FilePath)) {
+          let f0FileData = fs.readFileSync(f0FilePath);
+          let f0FileDataBase64 = f0FileData.toString('base64');
+          resolve(f0FileDataBase64);
+        } else {
+          reject(new Error("F0 file not found."));
+        }
+      } catch (error) {
+        reject(error);
+      }
     });
+    
 
     let readMetaDataPromise = parseFile(bundlePath+"/"+bundleBasename+"."+audioFileExtension);
     Promise.all([readFmsPromise, readF0Promise, readMetaDataPromise]).then(values => {
@@ -369,8 +388,6 @@ class EmuWebappServer {
         },
       };
     });
-
-    
   }
 
   getUser(req, cookies) {
