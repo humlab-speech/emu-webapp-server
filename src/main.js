@@ -313,7 +313,7 @@ class EmuWebappServer {
           let fmsFileDataBase64 = fmsFileData.toString('base64');
           resolve(fmsFileDataBase64);
         } else {
-          reject(new Error("FMS file not found."));
+          reject(new Error("FMS file not found at path "+fmsFilePath+"."));
         }
       } catch (error) {
         reject(error); // Handle any other errors that may occur
@@ -328,7 +328,7 @@ class EmuWebappServer {
           let f0FileDataBase64 = f0FileData.toString('base64');
           resolve(f0FileDataBase64);
         } else {
-          reject(new Error("F0 file not found."));
+          reject(new Error("F0 file not found at path "+f0FilePath+"."));
         }
       } catch (error) {
         reject(error);
