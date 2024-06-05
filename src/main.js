@@ -17,7 +17,7 @@ import VispAuth from './authModules/visp.module.js';
 class EmuWebappServer {
   constructor() {
     this.name = "EMU-webapp-server";
-    this.version = "1.0.4";
+    this.version = "1.0.5";
     dotenv.config();
     colors.enable();
     this.logLevel = process.env.LOG_LEVEL ? process.env.LOG_LEVEL.toUpperCase() : "INFO";
@@ -476,15 +476,15 @@ class EmuWebappServer {
 
     let bundlePath = process.env.REPOSITORIES_PATH+"/"+projectId+"/Data/VISP_emuDB/"+reqData.session+"_ses/"+bundleName+"_bndl";
 
-    const git = simpleGit(process.env.REPOSITORIES_PATH+"/"+projectId);
-    git.addConfig('user.name', user.firstName+" "+user.lastName);
-    git.addConfig('user.email', user.email);
+    //const git = simpleGit(process.env.REPOSITORIES_PATH+"/"+projectId);
+    //git.addConfig('user.name', user.firstName+" "+user.lastName);
+    //git.addConfig('user.email', user.email);
 
     for(let key in reqData.ssffFiles) {
       let ssffFile = reqData.ssffFiles[key];
       let decodedData = Buffer.from(ssffFile.data, ssffFile.encoding.toLowerCase());
       fs.writeFileSync(bundlePath+"/"+bundleName+"."+ssffFile.fileExtension, decodedData);
-      await git.add(bundlePath+"/"+bundleName+"."+ssffFile.fileExtension);
+      //await git.add(bundlePath+"/"+bundleName+"."+ssffFile.fileExtension);
     }
 
     reqData.annotation.annotates; //'I2QVMs.wav'
