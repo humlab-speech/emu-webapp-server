@@ -17,7 +17,7 @@ import VispAuth from './authModules/visp.module.js';
 class EmuWebappServer {
   constructor() {
     this.name = "EMU-webapp-server";
-    this.version = "1.0.3";
+    this.version = "1.0.4";
     dotenv.config();
     colors.enable();
     this.logLevel = process.env.LOG_LEVEL ? process.env.LOG_LEVEL.toUpperCase() : "INFO";
@@ -295,13 +295,13 @@ class EmuWebappServer {
     let audioFileExtension = "wav";
     let filename = bundleBasename+"."+audioFileExtension;
 
-    let mediaUrl = process.env.MEDIA_FILE_BASE_URL+"/file/project/"+projectId+"/session/"+sessionMachineName+"/file/"+bundleBasename+"."+audioFileExtension;
+    let mediaUrl = process.env.MEDIA_FILE_BASE_URL+"/file/project/"+projectId+"/session/"+session+"/file/"+bundleBasename+"."+audioFileExtension;
 
     //get project from mongodb
     let project = await this.db.collection('projects').findOne({id: projectId});
     
      //check that the user has access to this project
-    if(!project.members.includes(user.id)) {
+    if(!project.members.find(member => member.username == user.username)) {
       this.addLog("User "+user.username+" does not have access to project "+projectId+".", "error");
       const bundleResponse = {
         callbackID,
@@ -315,7 +315,7 @@ class EmuWebappServer {
     }
    
 
-    let bundlePath = process.env.REPOSITORIES_PATH+"/"+projectId+"/Data/VISP_emuDB/"+sessionMachineName+"_ses/"+bundleBasename+"_bndl";
+    let bundlePath = process.env.REPOSITORIES_PATH+"/"+projectId+"/Data/VISP_emuDB/"+session+"_ses/"+bundleBasename+"_bndl";
     
     //read dbconfig file - this should always exist
     let dbConfigPath = process.env.REPOSITORIES_PATH+"/"+projectId+"/Data/VISP_emuDB/VISP_DBconfig.json";
@@ -419,9 +419,10 @@ class EmuWebappServer {
         data: mediaUrl,
         encoding: "GETURL"
       },
-      ssffFiles: [],
+      ssffFiles: trackFiles,
     };
 
+    /*
     if(fmsFileDataBase64) {
       bundleData.ssffFiles.push({
         data: fmsFileDataBase64,
@@ -437,6 +438,7 @@ class EmuWebappServer {
         fileExtension: "f0",
       });
     }
+    */
  
     // Send GETBUNDLE response
     const bundleResponse = {
@@ -472,7 +474,7 @@ class EmuWebappServer {
     let sessionSlug = reqData.session.replace(/ /g, "_");
     let fileName = reqData.annotation.annotates;
 
-    let bundlePath = process.env.REPOSITORIES_PATH+"/"+projectId+"/Data/VISP_emuDB/"+sessionSlug+"_ses/"+bundleName+"_bndl";
+    let bundlePath = process.env.REPOSITORIES_PATH+"/"+projectId+"/Data/VISP_emuDB/"+reqData.session+"_ses/"+bundleName+"_bndl";
 
     const git = simpleGit(process.env.REPOSITORIES_PATH+"/"+projectId);
     git.addConfig('user.name', user.firstName+" "+user.lastName);
