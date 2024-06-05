@@ -28,10 +28,16 @@ class VispAuth {
     }
 
   async authenticateUser(phpSessionId, projectId) {
-    if(!phpSessionId || !projectId) {
+    if(!projectId) {
       return {
         authenticated: false,
-        reason: "No PHP session id or project id provided"
+        reason: "No project id provided"
+      };
+    }
+    if(!phpSessionId) {
+      return {
+        authenticated: false,
+        reason: "No PHP session id provided"
       };
     }
 
@@ -78,106 +84,6 @@ class VispAuth {
       authenticated: true,
       user: user
     };
-  }
-
-    /**
-   * @description Checks that the user has a valid session and that he/she has access to this project
-   * @param {*} sessionId 
-   * @param {*} projectId 
-   * @returns The user = { username, email }, otherwise false
-   */
-  async authenticateUserOLD(sessionId, projectId) {
-    let options = {
-        headers: {
-            'Cookie': "PHPSESSID="+sessionId
-        }
-    }
-
-    return new Promise((resolve, reject) => {
-      if(typeof sessionId == "undefined") {
-        resolve({
-            authenticated: false,
-            reason: "No PHP session id provided"
-        });
-        return;
-      }
-      if(typeof projectId == "undefined") {
-        resolve({
-          authenticated: false,
-          reason: "No project id provided"
-        });
-        return;
-      }
-      projectId = parseInt(projectId);
-
-      let authCacheEntry = this.authCacheGetAuthorization(sessionId, projectId);
-      if(authCacheEntry) {
-        //this.app.addLog("Found valid authorization in cache");
-        resolve({
-            authenticated: true,
-            userSession: authCacheEntry.userSession
-        });
-    }
-
-      http.get("http://apache/api/api.php?f=session&projectId="+projectId, options, (incMsg) => {
-        let body = "";
-        incMsg.on('data', (data) => {
-          body += data;
-        });
-        incMsg.on('end', () => {
-          try {
-            let responseBody = JSON.parse(body);
-            if(responseBody.body == "[]") {
-              //this.app.addLog("User not identified");
-              resolve({
-                  authenticated: false,
-                  reason: "User not identified"
-              });
-              return;
-            }
-          }
-          catch(error) {
-            //this.app.addLog("Failed parsing authentication response data", "error");
-            resolve({
-                authenticated: false,
-                reason: "Failed parsing authentication response data"
-            });
-            return;
-          }
-
-          let messageBody = JSON.parse(body);
-          if(messageBody.code != 200) {
-            this.app.addLog("Failed authentication: "+messageBody.message, "error");
-            resolve({
-                authenticated: false,
-                reason: "Failed authentication: "+messageBody.message
-            });
-            return;
-          }
-
-          let userSession = JSON.parse(JSON.parse(body).body);
-          if(typeof userSession.username == "undefined") {
-            resolve({
-              authenticated: false,
-              reason: "Session not valid"
-            });
-            return;
-          }
-          //this.app.addLog("Authenticated user "+userSession.username);
-          this.updateAuthCache(sessionId, projectId, userSession);
-          resolve({
-            authenticated: true,
-            userSession: userSession, //DEPRECATED
-            user: {
-              eppn: userSession.eppn,
-              username: userSession.username,
-              email: userSession.email,
-            }
-          });
-        });
-      });
-
-    });
   }
 
   authCacheGetAuthorization(sessionId, projectId) {

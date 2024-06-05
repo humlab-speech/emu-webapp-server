@@ -17,7 +17,7 @@ import VispAuth from './authModules/visp.module.js';
 class EmuWebappServer {
   constructor() {
     this.name = "EMU-webapp-server";
-    this.version = "1.0.1";
+    this.version = "1.0.3";
     dotenv.config();
     colors.enable();
     this.logLevel = process.env.LOG_LEVEL ? process.env.LOG_LEVEL.toUpperCase() : "INFO";
@@ -112,7 +112,6 @@ class EmuWebappServer {
         try {
           //this.addLog('Received message: '+message, "debug");
           const request = JSON.parse(message);
-  
           let authResult = await this.authModule.authenticateUser(ws.PHPSESSID, ws.projectId);
           if(!authResult.authenticated) {
             //send error message
@@ -300,12 +299,68 @@ class EmuWebappServer {
 
     //get project from mongodb
     let project = await this.db.collection('projects').findOne({id: projectId});
-    project.members.includes(user.id);
-    //TODO: now hold on just a minute: how do we know that the user has access to this project?
+    
+     //check that the user has access to this project
+    if(!project.members.includes(user.id)) {
+      this.addLog("User "+user.username+" does not have access to project "+projectId+".", "error");
+      const bundleResponse = {
+        callbackID,
+        status: {
+          type: 'ERROR',
+          message: 'User does not have access to project.',
+        },
+      };
+      ws.send(JSON.stringify(bundleResponse));
+      return;
+    }
+   
 
     let bundlePath = process.env.REPOSITORIES_PATH+"/"+projectId+"/Data/VISP_emuDB/"+sessionMachineName+"_ses/"+bundleBasename+"_bndl";
     
-    let readFmsPromise = new Promise((resolve, reject) => {
+    //read dbconfig file - this should always exist
+    let dbConfigPath = process.env.REPOSITORIES_PATH+"/"+projectId+"/Data/VISP_emuDB/VISP_DBconfig.json";
+    let configData = null;
+    try {
+      configData = fs.readFileSync(dbConfigPath, 'utf8');
+    }
+    catch(error) {
+      this.addLog("Error reading DBconfig file: "+error, "error");
+      const bundleResponse = {
+        callbackID,
+        status: {
+          type: 'ERROR',
+          message: 'Error reading DBconfig file. '+error,
+        },
+      };
+      ws.send(JSON.stringify(bundleResponse));
+      return;
+    }
+    
+    let emuDbConfig = JSON.parse(configData);
+    let trackFiles = [];
+    emuDbConfig.ssffTrackDefinitions.forEach(trackDef => {
+
+      this.addLog("Attempting to read "+trackDef.name+" track file: "+bundlePath+"/"+bundleBasename+"."+trackDef.fileExtension, "debug");
+
+      if(fs.existsSync(bundlePath+"/"+bundleBasename+"."+trackDef.fileExtension)) {
+        this.addLog("Found "+trackDef.name+" track file: "+bundlePath+"/"+bundleBasename+"."+trackDef.fileExtension, "debug");
+        let trackData = fs.readFileSync(bundlePath+"/"+bundleBasename+"."+trackDef.fileExtension);
+        let trackDataBase64 = trackData.toString('base64');
+        let trackFile = {
+          data: trackDataBase64,
+          encoding: "BASE64",
+          fileExtension: trackDef.fileExtension,
+        };
+        trackFiles.push(trackFile);
+      }
+      else {
+        this.addLog("Track file not found: "+bundlePath+"/"+bundleBasename+"."+trackDef.fileExtension, "warn");
+      }
+    });
+
+    /*
+    //attempt tp read fms file
+    let fmsFileDataBase64 = await new Promise((resolve, reject) => {
       try {
         let fmsFilePath = bundlePath + "/" + bundleBasename + ".fms";
         if (fs.existsSync(fmsFilePath)) { // Ensure file exists to avoid throwing in readFileSync
@@ -320,7 +375,8 @@ class EmuWebappServer {
       }
     });
     
-    let readF0Promise = new Promise((resolve, reject) => {
+    //attempt to read f0 file
+    let f0FileDataBase64 = await new Promise((resolve, reject) => {
       try {
         let f0FilePath = bundlePath + "/" + bundleBasename + ".f0";
         if (fs.existsSync(f0FilePath)) {
@@ -334,51 +390,12 @@ class EmuWebappServer {
         reject(error);
       }
     });
+    */
     
-
-    let readMetaDataPromise = parseFile(bundlePath+"/"+bundleBasename+"."+audioFileExtension);
-    Promise.all([readFmsPromise, readF0Promise, readMetaDataPromise]).then(values => {
-      let fmsFileDataBase64 = values[0];
-      let f0FileDataBase64 = values[1];
-      let audioFileMetadata = values[2];
-
-      let bundleData = {
-        annotation: {
-          annotates: filename,
-          levels: [],
-          links: [],
-          name: bundleBasename,
-          sampleRate: audioFileMetadata.format.sampleRate
-        },
-        mediaFile: {
-          data: mediaUrl,
-          encoding: "GETURL"
-        },
-        ssffFiles: [
-          {
-            data: fmsFileDataBase64,
-            encoding: "BASE64",
-            fileExtension: "fms",
-          },
-          {
-            data: f0FileDataBase64,
-            encoding: "BASE64",
-            fileExtension: "f0",
-          }
-        ],
-      };
-
-      // Send GETBUNDLE response
-      const bundleResponse = {
-        callbackID,
-        data: bundleData, // Replace with actual bundle data
-        status: {
-          type: 'SUCCESS',
-          message: '',
-        },
-      };
-      ws.send(JSON.stringify(bundleResponse));
-    }).catch((error) => {
+    let audioFileMetadata = null;
+    try {
+      audioFileMetadata = await parseFile(bundlePath + "/" + bundleBasename + "." + audioFileExtension);
+    } catch (error) {
       this.addLog("Error reading files: "+error, "error");
       const bundleResponse = {
         callbackID,
@@ -388,7 +405,49 @@ class EmuWebappServer {
         },
       };
       ws.send(JSON.stringify(bundleResponse));
-    });
+    }
+
+    let bundleData = {
+      annotation: {
+        annotates: filename,
+        levels: [],
+        links: [],
+        name: bundleBasename,
+        sampleRate: audioFileMetadata.format.sampleRate
+      },
+      mediaFile: {
+        data: mediaUrl,
+        encoding: "GETURL"
+      },
+      ssffFiles: [],
+    };
+
+    if(fmsFileDataBase64) {
+      bundleData.ssffFiles.push({
+        data: fmsFileDataBase64,
+        encoding: "BASE64",
+        fileExtension: "fms",
+      });
+    }
+
+    if(f0FileDataBase64) {
+      bundleData.ssffFiles.push({
+        data: f0FileDataBase64,
+        encoding: "BASE64",
+        fileExtension: "f0",
+      });
+    }
+ 
+    // Send GETBUNDLE response
+    const bundleResponse = {
+      callbackID,
+      data: bundleData, // Replace with actual bundle data
+      status: {
+        type: 'SUCCESS',
+        message: '',
+      },
+    };
+    ws.send(JSON.stringify(bundleResponse));
   }
 
   getUser(req, cookies) {
