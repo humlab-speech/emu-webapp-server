@@ -28,7 +28,7 @@
     "mime-types": "^2.1.35",
     "mongodb": "^5.5.0",
     "music-metadata": "^8.1.4",
-    "simple-git": "^3.19.0",
+    "simple-git": "^3.23.0",
     "ws": "^8.13.0"
   }
 }
