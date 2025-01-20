@@ -17,7 +17,7 @@ import VispAuth from './authModules/visp.module.js';
 class EmuWebappServer {
   constructor() {
     this.name = "EMU-webapp-server";
-    this.version = "1.0.5";
+    this.version = "1.0.6";
     dotenv.config();
     colors.enable();
     this.logLevel = process.env.LOG_LEVEL ? process.env.LOG_LEVEL.toUpperCase() : "INFO";
@@ -373,9 +373,11 @@ class EmuWebappServer {
 
 
     //load the <bundlename>_annot.json data
+    let annotationDataString = null;
     let annotationData = null;
     try {
-      annotationData = fs.readFileSync(bundlePath+"/"+bundleBasename+"_annot.json", 'utf8');
+      annotationDataString = fs.readFileSync(bundlePath+"/"+bundleBasename+"_annot.json", 'utf8');
+      annotationData = JSON.parse(annotationDataString);
     }
     catch(error) {
       this.addLog("Error reading annotation file: "+error, "error");
