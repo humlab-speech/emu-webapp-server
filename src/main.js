@@ -287,10 +287,8 @@ class EmuWebappServer {
   }
 
   async getBundle(ws, request, user, projectId) {
-    const { type, callbackID } = request;
-    const { name, session } = request;
+    const { name, session, callbackID } = request;
 
-    let sessionMachineName = session.replace(/ /g, "_");
     let bundleBasename = name;
     let audioFileExtension = "wav";
     let filename = bundleBasename+"."+audioFileExtension;
@@ -357,40 +355,6 @@ class EmuWebappServer {
         this.addLog("Track file not found: "+bundlePath+"/"+bundleBasename+"."+trackDef.fileExtension, "warn");
       }
     });
-
-    /*
-    //attempt tp read fms file
-    let fmsFileDataBase64 = await new Promise((resolve, reject) => {
-      try {
-        let fmsFilePath = bundlePath + "/" + bundleBasename + ".fms";
-        if (fs.existsSync(fmsFilePath)) { // Ensure file exists to avoid throwing in readFileSync
-          let fmsFileData = fs.readFileSync(fmsFilePath);
-          let fmsFileDataBase64 = fmsFileData.toString('base64');
-          resolve(fmsFileDataBase64);
-        } else {
-          reject(new Error("FMS file not found at path "+fmsFilePath+"."));
-        }
-      } catch (error) {
-        reject(error); // Handle any other errors that may occur
-      }
-    });
-    
-    //attempt to read f0 file
-    let f0FileDataBase64 = await new Promise((resolve, reject) => {
-      try {
-        let f0FilePath = bundlePath + "/" + bundleBasename + ".f0";
-        if (fs.existsSync(f0FilePath)) {
-          let f0FileData = fs.readFileSync(f0FilePath);
-          let f0FileDataBase64 = f0FileData.toString('base64');
-          resolve(f0FileDataBase64);
-        } else {
-          reject(new Error("F0 file not found at path "+f0FilePath+"."));
-        }
-      } catch (error) {
-        reject(error);
-      }
-    });
-    */
     
     let audioFileMetadata = null;
     try {
@@ -407,14 +371,27 @@ class EmuWebappServer {
       ws.send(JSON.stringify(bundleResponse));
     }
 
+
+    //load the <bundlename>_annot.json data
+    let annotationData = null;
+    try {
+      annotationData = fs.readFileSync(bundlePath+"/"+bundleBasename+"_annot.json", 'utf8');
+    }
+    catch(error) {
+      this.addLog("Error reading annotation file: "+error, "error");
+      const bundleResponse = {
+        callbackID,
+        status: {
+          type: 'ERROR',
+          message: 'Error reading annotation file. '+error,
+        },
+      };
+      ws.send(JSON.stringify(bundleResponse));
+      return;
+    }
+
     let bundleData = {
-      annotation: {
-        annotates: filename,
-        levels: [],
-        links: [],
-        name: bundleBasename,
-        sampleRate: audioFileMetadata.format.sampleRate
-      },
+      annotation: annotationData,
       mediaFile: {
         data: mediaUrl,
         encoding: "GETURL"
@@ -422,23 +399,8 @@ class EmuWebappServer {
       ssffFiles: trackFiles,
     };
 
-    /*
-    if(fmsFileDataBase64) {
-      bundleData.ssffFiles.push({
-        data: fmsFileDataBase64,
-        encoding: "BASE64",
-        fileExtension: "fms",
-      });
-    }
 
-    if(f0FileDataBase64) {
-      bundleData.ssffFiles.push({
-        data: f0FileDataBase64,
-        encoding: "BASE64",
-        fileExtension: "f0",
-      });
-    }
-    */
+    bundleData.annotation.levels = emuDbConfig.levelDefinitions;
  
     // Send GETBUNDLE response
     const bundleResponse = {
@@ -467,6 +429,7 @@ class EmuWebappServer {
   getSession(req) {
     return req.session;
   }
+
   async saveBundle(ws, request, user, projectId) {
     let reqData = request.data;
     let bundleName = reqData.annotation.name;
