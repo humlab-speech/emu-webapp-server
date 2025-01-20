@@ -17,7 +17,7 @@ import VispAuth from './authModules/visp.module.js';
 class EmuWebappServer {
   constructor() {
     this.name = "EMU-webapp-server";
-    this.version = "1.0.6";
+    this.version = "1.0.7";
     dotenv.config();
     colors.enable();
     this.logLevel = process.env.LOG_LEVEL ? process.env.LOG_LEVEL.toUpperCase() : "INFO";
@@ -400,14 +400,11 @@ class EmuWebappServer {
       },
       ssffFiles: trackFiles,
     };
-
-
-    bundleData.annotation.levels = emuDbConfig.levelDefinitions;
  
     // Send GETBUNDLE response
     const bundleResponse = {
       callbackID,
-      data: bundleData, // Replace with actual bundle data
+      data: bundleData,
       status: {
         type: 'SUCCESS',
         message: '',
