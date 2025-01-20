@@ -17,7 +17,7 @@ import VispAuth from './authModules/visp.module.js';
 class EmuWebappServer {
   constructor() {
     this.name = "EMU-webapp-server";
-    this.version = "1.0.7";
+    this.version = "1.0.8";
     dotenv.config();
     colors.enable();
     this.logLevel = process.env.LOG_LEVEL ? process.env.LOG_LEVEL.toUpperCase() : "INFO";
@@ -373,11 +373,9 @@ class EmuWebappServer {
 
 
     //load the <bundlename>_annot.json data
-    let annotationDataString = null;
     let annotationData = null;
     try {
-      annotationDataString = fs.readFileSync(bundlePath+"/"+bundleBasename+"_annot.json", 'utf8');
-      annotationData = JSON.parse(annotationDataString);
+      annotationData = this.getBundleAnnotationData(bundlePath, bundleBasename);
     }
     catch(error) {
       this.addLog("Error reading annotation file: "+error, "error");
@@ -413,6 +411,17 @@ class EmuWebappServer {
     ws.send(JSON.stringify(bundleResponse));
   }
 
+
+  getBundleAnnotationData(bundlePath, bundleName) {
+    let annotationDataString = fs.readFileSync(bundlePath+"/"+bundleName+"_annot.json", 'utf8');
+    let annotationData = JSON.parse(annotationDataString);
+    return annotationData;
+  }
+
+  saveBundleAnnotationData(bundlePath, bundleName, annotationData) {
+    fs.writeFileSync(bundlePath+"/"+bundleName+"_annot.json", JSON.stringify(annotationData, null, 2));
+  }
+
   getUser(req, cookies) {
     return this.authModule.getUser(cookies.PHPSESSID);
   }
@@ -432,15 +441,8 @@ class EmuWebappServer {
   async saveBundle(ws, request, user, projectId) {
     let reqData = request.data;
     let bundleName = reqData.annotation.name;
-    let project = await this.fetchProject(projectId);
-    let sessionSlug = reqData.session.replace(/ /g, "_");
-    let fileName = reqData.annotation.annotates;
 
     let bundlePath = process.env.REPOSITORIES_PATH+"/"+projectId+"/Data/VISP_emuDB/"+reqData.session+"_ses/"+bundleName+"_bndl";
-
-    //const git = simpleGit(process.env.REPOSITORIES_PATH+"/"+projectId);
-    //git.addConfig('user.name', user.firstName+" "+user.lastName);
-    //git.addConfig('user.email', user.email);
 
     for(let key in reqData.ssffFiles) {
       let ssffFile = reqData.ssffFiles[key];
@@ -449,18 +451,7 @@ class EmuWebappServer {
       //await git.add(bundlePath+"/"+bundleName+"."+ssffFile.fileExtension);
     }
 
-    reqData.annotation.annotates; //'I2QVMs.wav'
-    reqData.annotation.levels; //[]
-    reqData.annotation.links; //[]
-    reqData.annotation.name; //'I2QVMs'
-    reqData.annotation.sampleRate; //48000
-
-    reqData.mediaFile.encoding; //'BASE64'
-    reqData.session; //the session name
-
-    //these two should go in the _bundleList.json file
-    reqData.finishedEditing; //true/false
-    reqData.comment; //any comment
+    this.saveBundleAnnotationData(bundlePath, bundleName, reqData.annotation);
     
     let bundleList = await this.db.collection("bundlelists").findOne({projectId: projectId, owner: user.username});
     if(bundleList) {
@@ -479,28 +470,6 @@ class EmuWebappServer {
     else {
       this.addLog("Bundlelist not found when saving bundle", "error");
     }
-    
-
-    //db.collection("bundlelists").updateOne(
-    /*
-    let bundleListPath = process.env.REPOSITORIES_PATH+"/"+projectId+"/Data/VISP_emuDB/bundleLists/"+user.username+"_bundleList.json";
-    let bundleListData = fs.readFileSync(bundleListPath, 'utf8');
-    let bundleList = JSON.parse(bundleListData);
-    bundleList.finishedEditing = reqData.finishedEditing;
-    bundleList.comment = reqData.comment;
-    bundleList.forEach((bundleListItem) => {
-      if(bundleListItem.name == bundleName && bundleListItem.session == sessionName) {
-        bundleListItem.finishedEditing = reqData.finishedEditing;
-        bundleListItem.comment = reqData.comment;
-      }
-    });
-    fs.writeFileSync(bundleListPath, JSON.stringify(bundleList, null, 2));
-    await git.add(bundleListPath);
-    
-
-    //git commit
-    await git.commit("User "+user.username+" saved bundle "+bundleName+" for session "+sessionName);
-    */
 
     // Send SAVEBUNDLE response
     const { type, callbackID } = request;
