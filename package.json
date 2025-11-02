@@ -19,7 +19,7 @@
   },
   "homepage": "https://github.com/humlab-speech/emuwebapp-server#readme",
   "dependencies": {
-    "axios": "^1.4.0",
+    "axios": "^1.8.3",
     "body-parser": "^1.20.2",
     "colors": "^1.4.0",
     "cookie-parser": "^1.4.6",
