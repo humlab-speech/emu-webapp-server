@@ -5,8 +5,8 @@ Local development URL:
 https://emu-webapp.visp.local/?autoConnect=true&serverUrl=wss:%2F%2Femu-webapp.visp.local
 
 ## Assumptions made
-* There's a mongodb with a 'projects' collection containing the project metadata following the Gitlab format.
-* The EMU-DB files are stored in git repositories as a files on a drive. The directory structure is available at /repositories and are stored according to the pattern: /repositories/<username>/<projectname>/Data/VISP_emuDB.
+* There's a mongodb with a 'projects' collection containing the project metadata.
+* The EMU-DB files are stored in git repositories as files on a drive. The directory structure is available at /repositories and are stored according to the pattern: /repositories/<username>/<projectname>/Data/VISP_emuDB.
 
 ## Authentication modules
 You need to have an authentication module to authorize the user and fetch their information from your user management system. In our case it's a PHP backend, but it can be anything.
