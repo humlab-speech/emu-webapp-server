@@ -52,7 +52,7 @@ class EmuWebappServer {
     this.app.get('/', (req, res) => {
       res.send('You have requested an empty endpoint.');
     });
-
+    
     this.app.get('/file/project/:projectId/session/:sessionName/file/:fileName', async (req, res) => {
       let sessionName = req.params.sessionName;
       let fileName = req.params.fileName;
@@ -67,9 +67,19 @@ class EmuWebappServer {
       }
 
       let user = authResult.user;
-
       //get project from mongodb
       let project = await this.db.collection('projects').findOne({id: req.params.projectId});
+
+      //check that the user has access to this project (is a member)
+      if(!project.members.find(member => member.username == user.username)) {
+        this.addLog("User "+user.username+" does not have access to project "+req.params.projectId+".", "error");
+        res.status(403);
+        res.send('You do not have access to this project.');
+        return;
+      }
+      else {
+        this.addLog("User "+user.username+" is authorized to access project "+req.params.projectId+".", "debug");
+      }
 
       const path = process.env.REPOSITORIES_PATH+"/"+req.params.projectId+"/Data/VISP_emuDB/"+sessionName+"_ses/"+bundleName+"_bndl/"+fileName;
       this.addLog("Requested file: "+path, "debug");
