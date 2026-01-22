@@ -6,6 +6,8 @@
   "type": "module",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
+    "dev": "nodemon src/main.js",
+    "start": "node src/main.js",
     "dev-restart": "docker-compose stop emu-webapp-server && doco up -d emu-webapp-server"
   },
   "repository": {
@@ -30,5 +32,8 @@
     "music-metadata": "^8.1.4",
     "simple-git": "^3.19.0",
     "ws": "^8.13.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.2"
   }
 }

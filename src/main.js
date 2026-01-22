@@ -450,7 +450,7 @@ class EmuWebappServer {
 
   async saveBundle(ws, request, user, projectId) {
     let reqData = request.data;
-    let bundleName = reqData.annotation.name;
+    let bundleName = reqData.annotation.name.replace(/_annot\.json$/, '');
 
     let bundlePath = process.env.REPOSITORIES_PATH+"/"+projectId+"/Data/VISP_emuDB/"+reqData.session+"_ses/"+bundleName+"_bndl";
 
