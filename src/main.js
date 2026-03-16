@@ -182,6 +182,8 @@ class EmuWebappServer {
   
       ws.on('close', () => {
         this.addLog('Client disconnected');
+        //print out why
+        this.addLog('Reason: '+ws.closeReason, "debug");
       });
     });
   }
