@@ -112,12 +112,38 @@ class EmuWebappServer {
 
     wss.on('connection', async (ws, req) => {
       this.addLog('Client connected');
-      const parsedCookies = cookie.parse(req.headers.cookie);
+
+      let parsedCookies = {};
+      try {
+        const cookieHeader = req?.headers?.cookie;
+        if (typeof cookieHeader === 'string' && cookieHeader.length > 0) {
+          parsedCookies = cookie.parse(cookieHeader);
+        } else {
+          this.addLog('WebSocket connection has no cookie header or empty cookie.', 'warn');
+        }
+      } catch (err) {
+        this.addLog('Error parsing WebSocket cookies: '+err?.message, 'error');
+        ws.close(1008, 'Invalid cookies');
+        return;
+      }
+
       ws.PHPSESSID = parsedCookies.PHPSESSID;
       ws.projectId = parsedCookies.projectId;
 
       this.addLog("PHPSESSID: "+ws.PHPSESSID+", projectId: "+ws.projectId, "debug");
-      
+
+      if (!ws.projectId) {
+        this.addLog('Closing WebSocket: missing projectId', 'warn');
+        ws.close(1008, 'No project id provided');
+        return;
+      }
+
+      if (!ws.PHPSESSID) {
+        this.addLog('Closing WebSocket: missing PHPSESSID', 'warn');
+        ws.close(1008, 'No PHP session id provided');
+        return;
+      }
+
       ws.on('message', async (message) => {
         try {
           //this.addLog('Received message: '+message, "debug");
