@@ -1,4 +1,4 @@
-FROM node:23-bookworm-slim
+FROM node:24.15.0-bookworm-slim
 
 #Nodejs installation
 RUN apt-get update && apt-get install -y curl git nano wget procps
