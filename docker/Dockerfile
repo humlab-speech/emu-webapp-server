@@ -1,24 +1,22 @@
 FROM node:24.15.0-bookworm-slim
 
-#Nodejs installation
-RUN apt-get update && apt-get install -y curl git nano wget procps
-
-WORKDIR /home/node
+WORKDIR /home/node/app
 # Runs as the unprivileged `node` user (uid 1000 / gid 1000). The deployment
 # quadlet pins this uid to the host repository owner with rootless
 # --userns=keep-id:uid=1000,gid=1000, so files this service writes under
 # /repositories land owned by that single host identity — shared with
-# session-manager, wsrng-server and apache. Build steps below run as root and the
-# app tree is chowned to node before dropping privileges.
+# session-manager, wsrng-server and apache.
 
-RUN git clone https://github.com/humlab-speech/emu-webapp-server
-RUN mv emu-webapp-server app
-WORKDIR /home/node/app
-RUN npm install
-RUN mkdir logs
+# Built from the checked-out source (the build context), not a fresh clone, so
+# the image matches the version locked by the deployment. npm ci installs
+# exactly what package-lock.json pins. devDependencies (nodemon) are kept for
+# dev mode, which runs the image's default CMD with src/ bind-mounted.
+COPY package.json package-lock.json ./
+RUN npm ci && npm cache clean --force
+COPY src ./src
 
-# Hand the whole app tree (node_modules, logs, source) to the runtime user so it
-# can write logs/ and any working files once the quadlet drops capabilities.
-RUN chown -R node:node /home/node/app
+# The app tree stays owned by root: the service can write logs/ but not its own
+# code or dependencies.
+RUN mkdir logs && chown node:node logs
 USER node
 CMD ["npm", "run", "dev"]
