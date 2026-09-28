@@ -1,6 +1,3 @@
-//const http = require('http');
-import http from 'http';
-
 /**
  * @description Authentication module for VISP. 
  * This module validates the user against the PHP backend using the PHP session ID to check that the user is indeed logged with a valid user account. 
@@ -38,6 +35,13 @@ class VispAuth {
       return {
         authenticated: false,
         reason: "No PHP session id provided"
+      };
+    }
+    //both end up in mongo filters, which must only ever receive plain values
+    if(typeof projectId !== "string" || typeof phpSessionId !== "string") {
+      return {
+        authenticated: false,
+        reason: "Invalid credentials"
       };
     }
 

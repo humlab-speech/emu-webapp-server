@@ -1,29 +1,27 @@
 import express from 'express';
-import cookieParser from 'cookie-parser';
 import cookie from 'cookie';
-import WebSocket, { WebSocketServer } from 'ws';
+import { WebSocketServer } from 'ws';
 import { MongoClient } from 'mongodb';
-import http from 'http';
 import fs from 'fs';
-import mime from 'mime-types';
-import simpleGit from 'simple-git';
 import colors from 'colors';
-import { parseFile } from "music-metadata"
 import dotenv from "dotenv";
-import { exit } from 'process';
 
 import VispAuth from './authModules/visp.module.js';
+import { safePathComponent, safeJoinedPath } from './pathSecurity.js';
+
+//the only media file type getBundle() hands out URLs for
+const AUDIO_FILE_EXTENSION = "wav";
 
 class EmuWebappServer {
   constructor() {
     this.name = "EMU-webapp-server";
-    this.version = "1.0.8";
+    this.version = "1.1.0";
     dotenv.config();
     colors.enable();
     this.logLevel = process.env.LOG_LEVEL ? process.env.LOG_LEVEL.toUpperCase() : "INFO";
     this.addLog("Log level is "+this.logLevel, "INFO");
     this.app = express();
-    this.app.use(cookieParser());
+    this.app.disable('x-powered-by');
     this.server = null;
     this.db = null;
 
@@ -35,12 +33,53 @@ class EmuWebappServer {
       }
     });
 
+    //browsers send the Origin of the page opening a websocket, but do not enforce any policy on it - we have to,
+    //or any site the user visits could talk to us with their cookies (cross-site websocket hijacking)
+    this.allowedOrigins = process.env.ALLOWED_ORIGINS
+      ? process.env.ALLOWED_ORIGINS.split(",").map(origin => origin.trim()).filter(origin => origin)
+      : [new URL(process.env.MEDIA_FILE_BASE_URL).origin];
+    this.addLog("Allowed websocket origins: "+this.allowedOrigins.join(", "));
+
     this.authModule = new VispAuth(this);
 
     this.connectToMongo(process.env.MONGO_DB_NAME);
     this.setupEndpoints();
     this.startServer();
     this.setupWebSocket();
+  }
+
+  //cookie.parse only ever yields plain string values
+  parseCookies(cookieHeader) {
+    if(typeof cookieHeader !== 'string' || cookieHeader.length == 0) {
+      return {};
+    }
+    return cookie.parse(cookieHeader);
+  }
+
+  emuDbPath(projectId) {
+    return safeJoinedPath(process.env.REPOSITORIES_PATH, safePathComponent(projectId, "projectId"), "Data", "VISP_emuDB");
+  }
+
+  bundlePath(projectId, sessionName, bundleName) {
+    return safeJoinedPath(
+      this.emuDbPath(projectId),
+      safePathComponent(sessionName, "session")+"_ses",
+      safePathComponent(bundleName, "bundle")+"_bndl"
+    );
+  }
+
+  readDbConfig(projectId) {
+    return JSON.parse(fs.readFileSync(safeJoinedPath(this.emuDbPath(projectId), "VISP_DBconfig.json"), 'utf8'));
+  }
+
+  sendError(ws, callbackID, message) {
+    ws.send(JSON.stringify({
+      callbackID,
+      status: {
+        type: 'ERROR',
+        message: message,
+      },
+    }));
   }
 
   setupEndpoints() {
@@ -52,51 +91,52 @@ class EmuWebappServer {
     this.app.get('/', (req, res) => {
       res.send('You have requested an empty endpoint.');
     });
-    
+
     this.app.get('/file/project/:projectId/session/:sessionName/file/:fileName', async (req, res) => {
-      let sessionName = req.params.sessionName;
-      let fileName = req.params.fileName;
-      let bundleName = fileName.split(".")[0];
-      let authResult = await this.authModule.authenticateUser(req.cookies.PHPSESSID, req.params.projectId);
+      const { projectId, sessionName, fileName } = req.params;
+      try {
+        let authResult = await this.authModule.authenticateUser(this.parseCookies(req.headers.cookie).PHPSESSID, projectId);
 
-      if(authResult.authenticated == false) {
-        this.addLog("User not authenticated while trying to access file "+fileName+" in session "+sessionName+" in project "+projectId+". Reason was: "+authResult.reason, "warn");
-        res.status(401);
-        res.send('You are not authenticated.');
-        return;
+        if(authResult.authenticated == false) {
+          this.addLog("User not authenticated while trying to access file "+fileName+" in session "+sessionName+" in project "+projectId+". Reason was: "+authResult.reason, "warn");
+          res.status(401);
+          res.send('You are not authenticated.');
+          return;
+        }
+
+        //only the bundle audio files that getBundle() links to are served from here
+        const extensionSuffix = "."+AUDIO_FILE_EXTENSION;
+        if(!fileName.endsWith(extensionSuffix)) {
+          res.status(404);
+          res.send('File not found.');
+          return;
+        }
+        const bundleName = fileName.slice(0, -extensionSuffix.length);
+        const path = safeJoinedPath(this.bundlePath(projectId, sessionName, bundleName), bundleName+extensionSuffix);
+        this.addLog("Requested file: "+path, "debug");
+
+        if(!fs.existsSync(path)) {
+          this.addLog("File not found: "+path, "warn");
+          res.status(404);
+          res.send('File not found.');
+          return;
+        }
+
+        res.setHeader('X-Content-Type-Options', 'nosniff');
+        res.sendFile(path, (error) => {
+          if(error && !res.headersSent) {
+            this.addLog("Error sending file "+path+": "+error.message, "error");
+            res.status(500).end();
+          }
+        });
       }
-
-      let user = authResult.user;
-      //get project from mongodb
-      let project = await this.db.collection('projects').findOne({id: req.params.projectId});
-
-      //check that the user has access to this project (is a member)
-      if(!project.members.find(member => member.username == user.username)) {
-        this.addLog("User "+user.username+" does not have access to project "+req.params.projectId+".", "error");
-        res.status(403);
-        res.send('You do not have access to this project.');
-        return;
+      catch(error) {
+        this.addLog("Error serving file "+fileName+" in session "+sessionName+" in project "+projectId+": "+error.message, "warn");
+        if(!res.headersSent) {
+          res.status(400);
+          res.send('Bad request.');
+        }
       }
-      else {
-        this.addLog("User "+user.username+" is authorized to access project "+req.params.projectId+".", "debug");
-      }
-
-      const path = process.env.REPOSITORIES_PATH+"/"+req.params.projectId+"/Data/VISP_emuDB/"+sessionName+"_ses/"+bundleName+"_bndl/"+fileName;
-      this.addLog("Requested file: "+path, "debug");
-
-      //check that the file exists
-      if(!fs.existsSync(path)) {
-        this.addLog("File not found: "+path, "warn");
-        res.status(404);
-        res.send('File not found.');
-        return;
-      }
-
-      //read mimetype from file
-      const mimeType = mime.lookup(path);
-      let fileData = fs.readFileSync(path);
-      res.setHeader('Content-Type', mimeType);
-      res.end(fileData);
     });
   }
 
@@ -108,19 +148,24 @@ class EmuWebappServer {
   }
 
   setupWebSocket() {
-    const wss = new WebSocketServer({ server: this.server });
+    const wss = new WebSocketServer({
+      server: this.server,
+      verifyClient: (info, callback) => {
+        if(this.allowedOrigins.includes(info.origin)) {
+          callback(true);
+          return;
+        }
+        this.addLog("Rejected websocket connection from origin "+info.origin, "warn");
+        callback(false, 403, "Origin not allowed");
+      },
+    });
 
     wss.on('connection', async (ws, req) => {
       this.addLog('Client connected');
 
       let parsedCookies = {};
       try {
-        const cookieHeader = req?.headers?.cookie;
-        if (typeof cookieHeader === 'string' && cookieHeader.length > 0) {
-          parsedCookies = cookie.parse(cookieHeader);
-        } else {
-          this.addLog('WebSocket connection has no cookie header or empty cookie.', 'warn');
-        }
+        parsedCookies = this.parseCookies(req?.headers?.cookie);
       } catch (err) {
         this.addLog('Error parsing WebSocket cookies: '+err?.message, 'error');
         ws.close(1008, 'Invalid cookies');
@@ -130,7 +175,7 @@ class EmuWebappServer {
       ws.PHPSESSID = parsedCookies.PHPSESSID;
       ws.projectId = parsedCookies.projectId;
 
-      this.addLog("PHPSESSID: "+ws.PHPSESSID+", projectId: "+ws.projectId, "debug");
+      this.addLog("projectId: "+ws.projectId, "debug");
 
       if (!ws.projectId) {
         this.addLog('Closing WebSocket: missing projectId', 'warn');
@@ -145,27 +190,20 @@ class EmuWebappServer {
       }
 
       ws.on('message', async (message) => {
+        let request = null;
         try {
-          //this.addLog('Received message: '+message, "debug");
-          const request = JSON.parse(message);
+          request = JSON.parse(message);
+          //re-checked for every message, so logging out or losing project membership takes effect immediately
           let authResult = await this.authModule.authenticateUser(ws.PHPSESSID, ws.projectId);
           if(!authResult.authenticated) {
-            //send error message
-            const authErrorResponse = {
-              callbackID: request.callbackID,
-              status: {
-                type: 'ERROR',
-                message: authResult.reason,
-              },
-            };
             this.addLog("User failed authentication/authorization. Reason: "+authResult.reason, "warn");
-            ws.send(JSON.stringify(authErrorResponse));
+            this.sendError(ws, request.callbackID, authResult.reason);
             return;
           }
-  
+
           let user = authResult.user;
           this.addLog(request.type+" from user "+user.username);
-  
+
           switch (request.type) {
             case 'GETPROTOCOL':
               this.getProtocol(ws, request);
@@ -177,45 +215,33 @@ class EmuWebappServer {
               console.warn("Request type was LOGONUSER, but it is not supported");
               break;
             case 'GETGLOBALDBCONFIG':
-              this.getDbConfig(ws, request, user, parsedCookies.projectId);
+              await this.getDbConfig(ws, request, user, ws.projectId);
               break;
             case 'GETBUNDLELIST':
-              this.getBundleList(ws, request, user, parsedCookies.projectId);
+              await this.getBundleList(ws, request, user, ws.projectId);
               break;
             case 'GETBUNDLE':
-              this.getBundle(ws, request, user, parsedCookies.projectId);
+              await this.getBundle(ws, request, user, ws.projectId);
               break;
             case 'SAVEBUNDLE':
-              this.saveBundle(ws, request, user, parsedCookies.projectId);
+              await this.saveBundle(ws, request, user, ws.projectId);
               break;
             default:
-              // Handle unknown request
-              const unknownResponse = {
-                callbackID: request.callbackID,
-                status: {
-                  type: 'ERROR',
-                  message: 'Unknown command',
-                },
-              };
-              ws.send(JSON.stringify(unknownResponse));
+              this.sendError(ws, request.callbackID, 'Unknown command');
               break;
           }
         } catch (error) {
-          // Handle JSON parsing or other errors
-          this.addLog(error, "error");
+          //details stay in the log, they may contain server paths
+          this.addLog("Error handling "+(request?.type || "unparseable")+" request: "+(error?.stack || error), "error");
+          this.sendError(ws, request?.callbackID, 'Request failed.');
         }
       });
-  
-      ws.on('close', () => {
+
+      ws.on('close', (code, reason) => {
         this.addLog('Client disconnected');
-        //print out why
-        this.addLog('Reason: '+ws.closeReason, "debug");
+        this.addLog('Close code: '+code+', reason: '+reason, "debug");
       });
     });
-  }
-
-  bindWebSocketEventHandlers(ws) {
-    
   }
 
   getProtocol(ws, request) {
@@ -246,21 +272,14 @@ class EmuWebappServer {
     };
     ws.send(JSON.stringify(userManagementResponse));
   }
-  
+
   async getDbConfig(ws, request, user, projectId) {
     const { type, callbackID } = request;
-
-    //get project from mongodb
-    let project = await this.db.collection('projects').findOne({id: projectId});
-
-    //use fs to read the file
-    const filePath = process.env.REPOSITORIES_PATH+"/"+projectId+"/Data/VISP_emuDB/VISP_DBconfig.json"
-    let configData = fs.readFileSync(filePath, 'utf8');
 
     // Send GETGLOBALDBCONFIG response
     const globalDBConfigResponse = {
       callbackID,
-      data: JSON.parse(configData), 
+      data: this.readDbConfig(projectId),
       status: {
         type: 'SUCCESS',
         message: '',
@@ -295,92 +314,34 @@ class EmuWebappServer {
     ws.send(JSON.stringify(bundleListResponse));
   }
 
-  async saveBundleList(ws, request, user, projectId) {
-    const { type, callbackID } = request;
-
-    let bundleList = await this.db.collection("bundlelists").findOne({projectId: projectId, owner: user.username});
-
-    if(bundleList) {
-      await this.db.collection("bundlelists").updateOne(
-        {projectId: projectId, owner: user.username},
-        {$set: {bundles: request.data}}
-      );
-    } else {
-      await this.db.collection("bundlelists").insertOne({
-        projectId: projectId,
-        owner: user.username,
-        bundles: request.data
-      });
-    }
-
-    // Send SAVEBUNDLELIST response
-    const saveBundleListResponse = {
-      callbackID,
-      status: {
-        type: 'SUCCESS',
-        message: '',
-      },
-    };
-    ws.send(JSON.stringify(saveBundleListResponse));
-  }
-
   async getBundle(ws, request, user, projectId) {
     const { name, session, callbackID } = request;
 
     let bundleBasename = name;
-    let audioFileExtension = "wav";
-    let filename = bundleBasename+"."+audioFileExtension;
+    let bundlePath = this.bundlePath(projectId, session, bundleBasename);
 
-    let mediaUrl = process.env.MEDIA_FILE_BASE_URL+"/file/project/"+projectId+"/session/"+session+"/file/"+bundleBasename+"."+audioFileExtension;
+    let mediaUrl = process.env.MEDIA_FILE_BASE_URL+"/file/project/"+encodeURIComponent(projectId)+"/session/"+encodeURIComponent(session)+"/file/"+encodeURIComponent(bundleBasename+"."+AUDIO_FILE_EXTENSION);
 
-    //get project from mongodb
-    let project = await this.db.collection('projects').findOne({id: projectId});
-    
-     //check that the user has access to this project
-    if(!project.members.find(member => member.username == user.username)) {
-      this.addLog("User "+user.username+" does not have access to project "+projectId+".", "error");
-      const bundleResponse = {
-        callbackID,
-        status: {
-          type: 'ERROR',
-          message: 'User does not have access to project.',
-        },
-      };
-      ws.send(JSON.stringify(bundleResponse));
-      return;
-    }
-   
-
-    let bundlePath = process.env.REPOSITORIES_PATH+"/"+projectId+"/Data/VISP_emuDB/"+session+"_ses/"+bundleBasename+"_bndl";
-    
     //read dbconfig file - this should always exist
-    let dbConfigPath = process.env.REPOSITORIES_PATH+"/"+projectId+"/Data/VISP_emuDB/VISP_DBconfig.json";
-    let configData = null;
+    let emuDbConfig = null;
     try {
-      configData = fs.readFileSync(dbConfigPath, 'utf8');
+      emuDbConfig = this.readDbConfig(projectId);
     }
     catch(error) {
       this.addLog("Error reading DBconfig file: "+error, "error");
-      const bundleResponse = {
-        callbackID,
-        status: {
-          type: 'ERROR',
-          message: 'Error reading DBconfig file. '+error,
-        },
-      };
-      ws.send(JSON.stringify(bundleResponse));
+      this.sendError(ws, callbackID, 'Error reading DBconfig file.');
       return;
     }
-    
-    let emuDbConfig = JSON.parse(configData);
+
     let trackFiles = [];
     emuDbConfig.ssffTrackDefinitions.forEach(trackDef => {
+      let trackFilePath = safeJoinedPath(bundlePath, bundleBasename+"."+safePathComponent(trackDef.fileExtension, "fileExtension"));
 
-      this.addLog("Attempting to read "+trackDef.name+" track file: "+bundlePath+"/"+bundleBasename+"."+trackDef.fileExtension, "debug");
+      this.addLog("Attempting to read "+trackDef.name+" track file: "+trackFilePath, "debug");
 
-      if(fs.existsSync(bundlePath+"/"+bundleBasename+"."+trackDef.fileExtension)) {
-        this.addLog("Found "+trackDef.name+" track file: "+bundlePath+"/"+bundleBasename+"."+trackDef.fileExtension, "debug");
-        let trackData = fs.readFileSync(bundlePath+"/"+bundleBasename+"."+trackDef.fileExtension);
+      if(fs.existsSync(trackFilePath)) {
+        this.addLog("Found "+trackDef.name+" track file: "+trackFilePath, "debug");
+        let trackData = fs.readFileSync(trackFilePath);
         let trackDataBase64 = trackData.toString('base64');
         let trackFile = {
           data: trackDataBase64,
@@ -390,25 +351,15 @@ class EmuWebappServer {
         trackFiles.push(trackFile);
       }
       else {
-        this.addLog("Track file not found: "+bundlePath+"/"+bundleBasename+"."+trackDef.fileExtension, "warn");
+        this.addLog("Track file not found: "+trackFilePath, "warn");
       }
     });
-    
-    let audioFileMetadata = null;
-    try {
-      audioFileMetadata = await parseFile(bundlePath + "/" + bundleBasename + "." + audioFileExtension);
-    } catch (error) {
-      this.addLog("Error reading files: "+error, "error");
-      const bundleResponse = {
-        callbackID,
-        status: {
-          type: 'ERROR',
-          message: 'Error reading files. '+error,
-        },
-      };
-      ws.send(JSON.stringify(bundleResponse));
-    }
 
+    if(!fs.existsSync(safeJoinedPath(bundlePath, bundleBasename+"."+AUDIO_FILE_EXTENSION))) {
+      this.addLog("Audio file not found in bundle "+bundlePath, "error");
+      this.sendError(ws, callbackID, 'Audio file not found.');
+      return;
+    }
 
     //load the <bundlename>_annot.json data
     let annotationData = null;
@@ -417,14 +368,7 @@ class EmuWebappServer {
     }
     catch(error) {
       this.addLog("Error reading annotation file: "+error, "error");
-      const bundleResponse = {
-        callbackID,
-        status: {
-          type: 'ERROR',
-          message: 'Error reading annotation file. '+error,
-        },
-      };
-      ws.send(JSON.stringify(bundleResponse));
+      this.sendError(ws, callbackID, 'Error reading annotation file.');
       return;
     }
 
@@ -436,7 +380,7 @@ class EmuWebappServer {
       },
       ssffFiles: trackFiles,
     };
- 
+
     // Send GETBUNDLE response
     const bundleResponse = {
       callbackID,
@@ -451,56 +395,60 @@ class EmuWebappServer {
 
 
   getBundleAnnotationData(bundlePath, bundleName) {
-    let annotationDataString = fs.readFileSync(bundlePath+"/"+bundleName+"_annot.json", 'utf8');
+    let annotationDataString = fs.readFileSync(safeJoinedPath(bundlePath, bundleName+"_annot.json"), 'utf8');
     let annotationData = JSON.parse(annotationDataString);
     return annotationData;
   }
 
   saveBundleAnnotationData(bundlePath, bundleName, annotationData) {
-    fs.writeFileSync(bundlePath+"/"+bundleName+"_annot.json", JSON.stringify(annotationData, null, 2));
-  }
-
-  getUser(req, cookies) {
-    return this.authModule.getUser(cookies.PHPSESSID);
-  }
-
-  async fetchProjectOLD(req, cookies) {
-    return await this.db.collection('projects').findOne({id: parseInt(cookies.projectId)});
-  }
-
-  async fetchProject(projectId) {
-    return await this.db.collection('projects').findOne({id: projectId});
-  }
-
-  getSession(req) {
-    return req.session;
+    fs.writeFileSync(safeJoinedPath(bundlePath, bundleName+"_annot.json"), JSON.stringify(annotationData, null, 2));
   }
 
   async saveBundle(ws, request, user, projectId) {
+    const { type, callbackID } = request;
     let reqData = request.data;
+    if(typeof reqData?.annotation?.name !== "string") {
+      this.sendError(ws, callbackID, 'Invalid bundle data.');
+      return;
+    }
     let bundleName = reqData.annotation.name.replace(/_annot\.json$/, '');
 
-    let bundlePath = process.env.REPOSITORIES_PATH+"/"+projectId+"/Data/VISP_emuDB/"+reqData.session+"_ses/"+bundleName+"_bndl";
+    let bundlePath = this.bundlePath(projectId, reqData.session, bundleName);
+    //never create bundles, only update existing ones
+    if(!fs.existsSync(bundlePath)) {
+      this.addLog("Refusing to save to non-existent bundle "+bundlePath, "warn");
+      this.sendError(ws, callbackID, 'Bundle not found.');
+      return;
+    }
 
-    for(let key in reqData.ssffFiles) {
-      let ssffFile = reqData.ssffFiles[key];
-      let decodedData = Buffer.from(ssffFile.data, ssffFile.encoding.toLowerCase());
-      fs.writeFileSync(bundlePath+"/"+bundleName+"."+ssffFile.fileExtension, decodedData);
-      //await git.add(bundlePath+"/"+bundleName+"."+ssffFile.fileExtension);
+    //only the SSFF tracks declared in the database config may be written, and nothing else (e.g. the audio file)
+    let allowedExtensions = this.readDbConfig(projectId).ssffTrackDefinitions.map(trackDef => trackDef.fileExtension);
+    let ssffFiles = Object.values(reqData.ssffFiles || {});
+    for(let ssffFile of ssffFiles) {
+      if(!allowedExtensions.includes(ssffFile?.fileExtension) || ssffFile.encoding?.toUpperCase() !== "BASE64" || typeof ssffFile.data !== "string") {
+        this.addLog("Refusing to save SSFF file with extension "+ssffFile?.fileExtension+" and encoding "+ssffFile?.encoding+" to "+bundlePath, "warn");
+        this.sendError(ws, callbackID, 'Invalid SSFF file.');
+        return;
+      }
+    }
+
+    for(let ssffFile of ssffFiles) {
+      let decodedData = Buffer.from(ssffFile.data, 'base64');
+      fs.writeFileSync(safeJoinedPath(bundlePath, bundleName+"."+safePathComponent(ssffFile.fileExtension, "fileExtension")), decodedData);
     }
 
     this.saveBundleAnnotationData(bundlePath, bundleName, reqData.annotation);
-    
+
     let bundleList = await this.db.collection("bundlelists").findOne({projectId: projectId, owner: user.username});
     if(bundleList) {
       bundleList.bundles.forEach((bundleListItem) => {
         if(bundleListItem.name == bundleName && bundleListItem.session == reqData.session) {
           bundleListItem.finishedEditing = reqData.finishedEditing ? true : false; //make sure it's a boolean
-          bundleListItem.comment = reqData.comment;
+          bundleListItem.comment = typeof reqData.comment === "string" ? reqData.comment : "";
         }
       });
 
-      this.db.collection("bundlelists").updateOne(
+      await this.db.collection("bundlelists").updateOne(
         {projectId: projectId, owner: user.username},
         {$set: {bundles: bundleList.bundles}}
       );
@@ -510,7 +458,6 @@ class EmuWebappServer {
     }
 
     // Send SAVEBUNDLE response
-    const { type, callbackID } = request;
     const saveBundleResponse = {
       callbackID,
       status: {
@@ -522,7 +469,7 @@ class EmuWebappServer {
   }
 
   connectToMongo(dbName) {
-    MongoClient.connect(process.env.MONGO_URI, { useUnifiedTopology: true })
+    MongoClient.connect(process.env.MONGO_URI)
       .then(client => {
         this.addLog('Connected to MongoDB');
 
@@ -532,10 +479,6 @@ class EmuWebappServer {
       .catch(err => {
         this.addLog('Failed to connect to MongoDB', "error");
       });
-  }
-
-  disconnectFromMongo() {
-    this.mongoClient.close();
   }
 
   addLog(msg, level = 'info') {
@@ -562,7 +505,7 @@ class EmuWebappServer {
         levelMsgColor = colors.cyan(levelMsg);
       break;
     }
-    
+
     let logMsg = new Date().toLocaleDateString("sv-SE")+" "+new Date().toLocaleTimeString("sv-SE");
     let printMsg = logMsg+" ["+levelMsgColor+"] "+msg;
     let writeMsg = logMsg+" ["+levelMsg+"] "+msg+"\n";
