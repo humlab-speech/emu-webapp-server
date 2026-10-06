@@ -237,6 +237,12 @@ class EmuWebappServer {
         }
       });
 
+      //without an 'error' listener, ws emits unhandled 'error' events on receiver
+      //protocol errors / send-after-close, which terminate the whole node process
+      ws.on('error', (err) => {
+        this.addLog('WebSocket connection error: '+(err?.message || err), "warn");
+      });
+
       ws.on('close', (code, reason) => {
         this.addLog('Client disconnected');
         this.addLog('Close code: '+code+', reason: '+reason, "debug");
