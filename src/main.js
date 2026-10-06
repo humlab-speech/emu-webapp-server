@@ -163,6 +163,11 @@ class EmuWebappServer {
     wss.on('connection', async (ws, req) => {
       this.addLog('Client connected');
 
+      // attach before any early-return close so all sockets have an error handler
+      ws.on('error', (err) => {
+        this.addLog('WebSocket connection error: '+(err?.message || err), "warn");
+      });
+
       let parsedCookies = {};
       try {
         parsedCookies = this.parseCookies(req?.headers?.cookie);
@@ -235,12 +240,6 @@ class EmuWebappServer {
           this.addLog("Error handling "+(request?.type || "unparseable")+" request: "+(error?.stack || error), "error");
           this.sendError(ws, request?.callbackID, 'Request failed.');
         }
-      });
-
-      //without an 'error' listener, ws emits unhandled 'error' events on receiver
-      //protocol errors / send-after-close, which terminate the whole node process
-      ws.on('error', (err) => {
-        this.addLog('WebSocket connection error: '+(err?.message || err), "warn");
       });
 
       ws.on('close', (code, reason) => {
