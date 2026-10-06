@@ -4,6 +4,9 @@
   "description": "A server pretending to be an instance of Gitlab for interoperability with Emu-WebApp",
   "main": "index.js",
   "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
   "scripts": {
     "test": "node --test test/",
     "dev": "nodemon --exitcrash src/main.js",
