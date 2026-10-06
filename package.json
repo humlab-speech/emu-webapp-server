@@ -8,18 +8,18 @@
     "test": "node --test test/",
     "dev": "nodemon --exitcrash src/main.js",
     "start": "node src/main.js",
-    "dev-restart": "docker-compose stop emu-webapp-server && doco up -d emu-webapp-server"
+    "dev-restart": "docker-compose stop emu-webapp-server && docker-compose up -d emu-webapp-server"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/humlab-speech/emuwebapp-server.git"
+    "url": "git+https://github.com/humlab-speech/emu-webapp-server.git"
   },
   "author": "",
   "license": "ISC",
   "bugs": {
-    "url": "https://github.com/humlab-speech/emuwebapp-server/issues"
+    "url": "https://github.com/humlab-speech/emu-webapp-server/issues"
   },
-  "homepage": "https://github.com/humlab-speech/emuwebapp-server#readme",
+  "homepage": "https://github.com/humlab-speech/emu-webapp-server#readme",
   "dependencies": {
     "colors": "^1.4.0",
     "cookie": "^0.7.2",
