@@ -483,7 +483,11 @@ class EmuWebappServer {
         this.db = client.db(dbName);
       })
       .catch(err => {
-        this.addLog('Failed to connect to MongoDB', "error");
+        this.addLog('Failed to connect to MongoDB: '+(err?.message || err), "error");
+        //A connect failure must not leave a half-alive server behind: every
+        //database-backed request would fail forever while systemd reports the unit as
+        //running. Exit non-zero so systemd's Restart=always retries the connection.
+        process.exit(1);
       });
   }
 
