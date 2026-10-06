@@ -145,6 +145,18 @@ class EmuWebappServer {
     this.server = this.app.listen(port, () => {
       this.addLog(this.name+' '+this.version+' is running on port '+port);
     });
+    // Same class of crash as an unlistened WebSocket error: a listening failure
+    // (port busy, EACCES) arrives as an 'error' event, and without a listener it is an
+    // uncaught exception. Exit non-zero and let systemd's Restart=always retry, rather
+    // than hold a process that accepts nothing.
+    this.server.on('error', (err) => {
+      try {
+        this.addLog('HTTP server error, exiting: '+(err?.message || err), "error");
+      } catch (logError) {
+        console.error('HTTP server error, exiting: '+(err?.message || err));
+      }
+      process.exit(1);
+    });
   }
 
   setupWebSocket() {
@@ -163,9 +175,20 @@ class EmuWebappServer {
     wss.on('connection', async (ws, req) => {
       this.addLog('Client connected');
 
-      // attach before any early-return close so all sockets have an error handler
+      // A WebSocket 'error' event with no listener is an uncaught exception: one
+      // malformed frame from a client takes the whole process down, for every user.
+      // Attached first, because the pre-auth checks below close the socket and return -
+      // a socket that is closed while its frame is still bad errors out afterwards, and
+      // that is exactly the crash this prevents.
       ws.on('error', (err) => {
-        this.addLog('WebSocket connection error: '+(err?.message || err), "warn");
+        // addLog writes with appendFileSync, and a throw from inside an 'error'
+        // listener is itself uncaught - so the handler that stops one crash must not
+        // become another.
+        try {
+          this.addLog('WebSocket connection error: '+(err?.message || err), "warn");
+        } catch (logError) {
+          console.error('WebSocket connection error (unloggable): '+(err?.message || err));
+        }
       });
 
       let parsedCookies = {};
