@@ -1,7 +1,11 @@
 /**
- * @description Authentication module for VISP. 
- * This module validates the user against the PHP backend using the PHP session ID to check that the user is indeed logged with a valid user account. 
- * It also verifies that the user has access to the project in question.
+ * @description Authentication module for VISP.
+ * Validates the PHP session ID against the MongoDB `users` collection: a
+ * user is authenticated if a user document carries the same `phpSessionId`,
+ * and authorized for a project if that user's username appears in the
+ * `members` of the `projects` document with the requested id.
+ * It does not call the PHP backend - the PHP API only maintains the
+ * `phpSessionId` field that is matched here.
  */
 class VispAuth {
     constructor(app) {
