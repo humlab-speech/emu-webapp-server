@@ -1,4 +1,8 @@
-FROM node:24.15.0-bookworm-slim
+FROM docker.io/library/node:24.22.2-trixie-slim
+
+# Patch the Debian packages past the tag's build date. npm stays: the prod
+# quadlet runs 'npm start' and dev mode 'npm run dev' (nodemon).
+RUN apt-get update &&     apt-get upgrade -y --no-install-recommends &&     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /home/node/app
 # Runs as the unprivileged `node` user (uid 1000 / gid 1000). The deployment
